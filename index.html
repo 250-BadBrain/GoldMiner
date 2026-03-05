@@ -3,17 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>黄金矿工 - 双人联机专业版</title>
+    <title>黄金矿工联机版 - 同步修复</title>
     <link rel="stylesheet" href="style.css">
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
 </head>
 <body>
     <div id="ui-layer">
         <div id="connection-panel" class="panel">
-            <div class="id-display">
-                我的 ID: <b id="myId" title="点击复制">获取中...</b>
-                <span id="copyTip">点击复制</span>
-            </div>
+            <div class="id-display">我的 ID: <b id="myId">获取中...</b> <span id="copyTip">点击复制</span></div>
             <div class="input-group">
                 <input type="text" id="peerIdInput" placeholder="粘贴队友 ID">
                 <button id="connectBtn">连接队友</button>
@@ -22,7 +19,7 @@
         
         <div id="game-info" class="panel" style="display: none;">
             <div class="mission-box">
-                <div id="levelDisplay" class="level-tag">第 1 关</div>
+                <div id="levelDisplay">第 1 关</div>
                 <div class="total-score-row">总分: <span id="totalScoreDisplay">0</span> / <span id="targetScoreDisplay">2500</span></div>
                 <div id="timeBox">剩余时间: <span id="timeDisplay">60</span>s | 💣 炸弹: <span id="bombDisplay">3</span></div>
             </div>
@@ -37,6 +34,12 @@
         <div class="overlay-content">
             <h1 id="overlayTitle">准备就绪</h1>
             <p id="overlayStatus">等待连接中...</p>
+            
+            <div id="shop-area" style="display:none; margin: 20px 0; border-top: 2px dashed #8b4513; padding-top: 20px;">
+                <h2 style="color: #ffcc00;">🛒 矿工商店</h2>
+                <div id="shop-items" style="display: flex; gap: 15px; justify-content: center; margin-bottom: 20px;"></div>
+            </div>
+
             <div id="actionBtnContainer">
                 <button id="nextLevelBtn" class="big-btn" style="display:none;">开始游戏</button>
                 <button id="restartBtn" class="big-btn" style="display:none;">重新开始</button>

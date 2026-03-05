@@ -1,145 +1,20 @@
-body, html { 
-    margin: 0; 
-    padding: 0; 
-    width: 100%; 
-    height: 100%; 
-    overflow: hidden; 
-    background-color: #1a1a1a; 
-    font-family: "Microsoft YaHei", sans-serif; 
-}
-
-/* UI 顶层容器 */
-#ui-layer { 
-    position: absolute; 
-    top: 0; 
-    left: 0; 
-    width: 100%; 
-    z-index: 1000; 
-    display: flex; 
-    justify-content: center; 
-    pointer-events: none; 
-}
-
-/* 顶部面板（连接面板和得分面板） */
-.panel { 
-    pointer-events: auto; 
-    background: rgba(0, 0, 0, 0.9); 
-    color: #ffffff; /* 确保文字是白色 */
-    padding: 10px 40px; 
-    border-radius: 0 0 20px 20px; 
-    display: flex; 
-    gap: 25px; 
-    align-items: center; 
-    box-shadow: 0 8px 32px rgba(0,0,0,0.8); 
-    border: 1px solid rgba(255,255,255,0.2); 
-    border-top: none; 
-}
-
-/* ID 显示区域 */
-.id-display { color: #ffffff; }
-#myId { 
-    color: #00ff00; 
-    cursor: pointer; 
-    text-decoration: underline; 
-    font-family: monospace; 
-    font-size: 16px; 
-}
-#copyTip { 
-    position: absolute; 
-    bottom: -20px; 
-    left: 0; 
-    font-size: 11px; 
-    color: #00ff00; 
-    width: 100%; 
-    text-align: center; 
-}
-
-/* 输入框 */
-input { 
-    padding: 8px 12px; 
-    border-radius: 4px; 
-    border: 1px solid #555; 
-    background: #222; 
-    color: #ffffff; 
-    outline: none; 
-    width: 180px; 
-}
-
-/* 按钮 */
-button { 
-    padding: 8px 16px; 
-    cursor: pointer; 
-    background: #8b4513; 
-    color: white; 
-    border: none; 
-    border-radius: 4px; 
-    font-weight: bold; 
-    transition: background 0.2s;
-}
-button:hover { background: #a0522d; }
-
-/* 游戏全屏容器 */
-#canvas-container { 
-    width: 100vw; 
-    height: 100vh; 
-    display: flex; 
-    justify-content: center; 
-    align-items: center; 
-    background: radial-gradient(#2c1e16, #000); 
-}
-#gameCanvas { 
-    background: #3d2b1f; 
-    max-width: 100%; 
-    max-height: 100%; 
-    aspect-ratio: 16 / 9; 
-    z-index: 1; 
-}
-
-/* 游戏数据面板 */
-.total-score-row { font-size: 24px; color: #ffff00; font-weight: bold; margin-bottom: 5px; }
-#timeBox { color: #ffffff; font-size: 14px; opacity: 0.9; }
-
-/* 核心修改：中间的大弹窗（Overlay） */
-.overlay { 
-    position: absolute; 
-    inset: 0; 
-    background: rgba(0,0,0,0.85); 
-    display: flex; 
-    justify-content: center; 
-    align-items: center; 
-    z-index: 2000; 
-}
-.overlay-content { 
-    text-align: center; 
-    background: #2c1e16; 
-    padding: 50px 80px; 
-    border-radius: 30px; 
-    border: 4px solid #8b4513; 
-    box-shadow: 0 0 50px rgba(0,0,0,1);
-    color: #ffffff; /* 确保内容文字是白色 */
-}
-.overlay-content h1 { 
-    margin: 0 0 20px 0; 
-    color: #ffcc00; /* 标题用亮黄色 */
-    font-size: 48px;
-    text-shadow: 2px 2px 4px #000;
-}
-.overlay-content p { 
-    font-size: 24px; 
-    color: #ffffff; /* 状态描述用白色 */
-    margin-bottom: 30px;
-}
-
-/* 大按钮 */
-.big-btn { 
-    padding: 18px 50px; 
-    font-size: 24px; 
-    background: #ffcc00; 
-    color: #000; 
-    border: none; 
-    border-radius: 15px; 
-    cursor: pointer; 
-    font-weight: bold; 
-    box-shadow: 0 5px 0 #b8860b;
-}
-.big-btn:active { transform: translateY(4px); box-shadow: none; }
+body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background-color: #1a1a1a; font-family: "Microsoft YaHei", sans-serif; }
+#ui-layer { position: absolute; top: 0; left: 0; width: 100%; z-index: 1000; display: flex; justify-content: center; pointer-events: none; }
+.panel { pointer-events: auto; background: rgba(0, 0, 0, 0.9); color: #ffffff; padding: 10px 40px; border-radius: 0 0 20px 20px; display: flex; gap: 25px; align-items: center; box-shadow: 0 8px 32px rgba(0,0,0,0.8); border: 1px solid rgba(255,255,255,0.2); border-top: none; }
+#myId { color: #00ff00; cursor: pointer; text-decoration: underline; font-family: monospace; }
+#copyTip { position: absolute; bottom: -20px; left: 0; font-size: 11px; color: #00ff00; width: 100%; text-align: center; }
+input { padding: 8px 12px; border-radius: 4px; border: 1px solid #555; background: #222; color: #fff; width: 180px; }
+button { padding: 8px 16px; cursor: pointer; background: #8b4513; color: white; border: none; border-radius: 4px; font-weight: bold; }
+#canvas-container { width: 100vw; height: 100vh; display: flex; justify-content: center; align-items: center; background: radial-gradient(#2c1e16, #000); }
+#gameCanvas { background: #3d2b1f; max-width: 100%; max-height: 100%; aspect-ratio: 16 / 9; display: block; }
+.total-score-row { font-size: 24px; color: #ffff00; font-weight: bold; }
+.overlay { position: absolute; inset: 0; background: rgba(0,0,0,0.85); display: flex; justify-content: center; align-items: center; z-index: 2000; }
+.overlay-content { text-align: center; background: #2c1e16; padding: 30px 60px; border-radius: 30px; border: 4px solid #8b4513; color: #ffffff; min-width: 500px; }
+.overlay-content h1 { color: #ffcc00; font-size: 38px; margin-bottom: 10px; }
+.big-btn { padding: 15px 40px; font-size: 20px; background: #ffcc00; color: #000; border: none; border-radius: 10px; cursor: pointer; font-weight: bold; }
+.shop-item-card { background: #3d2b1f; border: 2px solid #8b4513; padding: 10px; border-radius: 10px; width: 120px; cursor: pointer; transition: transform 0.2s; position: relative; }
+.shop-item-card:hover { transform: scale(1.05); background: #4d3b2f; }
+/* 关键修改：仅变灰并半透明 */
+.shop-item-card.sold { opacity: 0.3; pointer-events: none; filter: grayscale(1); border-color: #444; }
+.item-name { font-weight: bold; font-size: 14px; margin-bottom: 5px; display: block; }
+.item-price { color: #ffcc00; font-size: 16px; font-weight: bold; }
