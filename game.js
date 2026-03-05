@@ -1,6 +1,5 @@
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
-
 const LOGIC_WIDTH = 1600;
 const LOGIC_HEIGHT = 900;
 canvas.width = LOGIC_WIDTH;
@@ -10,24 +9,31 @@ const SWING_SPEED = 0.008;
 const FIRE_SPEED = 3.5;         
 const RETRACT_SPEED_BASE = 4.5; 
 
-// --- 联机核心模块 (带调试信息) ---
-let peer = new Peer(); // 使用公共服务器
+// --- 强力连接配置 ---
+const peerConfig = {
+    config: {
+        'iceServers': [
+            { url: 'stun:stun.l.google.com:19302' },
+            { url: 'stun:stun1.l.google.com:19302' },
+            { url: 'stun:stun2.l.google.com:19302' },
+            { url: 'stun:stun3.l.google.com:19302' },
+            { url: 'stun:stun4.l.google.com:19302' }
+        ]
+    }
+};
+
+let peer = new Peer(peerConfig); 
 let conn = null;
 let isHost = false;
 
 peer.on('open', id => {
-    console.log('%c[PeerJS] 成功连接调度服务器。我的 ID: ' + id, 'color: #00ff00; font-weight: bold;');
+    console.log('%c[PeerJS] 调度服务器就绪。ID: ' + id, 'color: #00ff00; font-weight: bold;');
     document.getElementById('myId').innerText = id;
 });
 
 peer.on('error', err => {
-    console.error('[PeerJS] 发生错误:', err.type);
-    let msg = "连接出错: ";
-    if (err.type === 'peer-unavailable') msg = "找不到该 ID，请确认对方已打开网页且 ID 输入正确";
-    else if (err.type === 'network') msg = "网络连接失败，请检查是否被内网防火墙拦截，建议连接同一热点";
-    else if (err.type === 'browser-incompatible') msg = "当前浏览器版本过低或不支持 WebRTC";
-    else msg += err.type;
-    alert(msg);
+    console.error('[PeerJS] 错误:', err.type);
+    if(err.type === 'peer-unavailable') alert("找不到对方ID，请检查是否输入正确且对方在线");
 });
 
 document.getElementById('myId').onclick = () => {
@@ -36,37 +42,29 @@ document.getElementById('myId').onclick = () => {
     setTimeout(() => document.getElementById('copyTip').innerText = "点击复制", 2000);
 };
 
-// 主机端：等待别人连接
+// 主机端
 peer.on('connection', c => {
-    console.log('%c[PeerJS] 收到来自 ' + c.peer + ' 的连接请求', 'color: #ffcc00;');
+    console.log('%c[PeerJS] 监听到连接请求...', 'color: #ffcc00;');
     conn = c;
     isHost = true;
     setupConn();
 });
 
-// 客机端：主动点击连接按钮
+// 客机端
 document.getElementById('connectBtn').onclick = () => {
     const pId = document.getElementById('peerIdInput').value.trim();
     if (!pId) return alert("请输入 ID");
-    
-    console.log('[PeerJS] 正在尝试连接对方: ' + pId);
-    conn = peer.connect(pId);
+    console.log('[PeerJS] 正在连接: ' + pId);
+    conn = peer.connect(pId, { reliable: true });
     isHost = false;
     setupConn();
-    
-    // 超时检测
-    setTimeout(() => {
-        if (conn && !conn.open) {
-            console.warn('[PeerJS] 连接响应过慢，可能存在网络握手失败。');
-        }
-    }, 5000);
 };
 
 function setupConn() {
     if (!conn) return;
 
     conn.on('open', () => {
-        console.log('%c[PeerJS] P2P 通信通道已成功建立！', 'color: #00ff00; font-size: 14px;');
+        console.log('%c[PeerJS] 通道开启成功！数据现在可以传输。', 'color: #00ff00; font-size: 16px;');
         document.getElementById('connection-panel').style.display = 'none';
         document.getElementById('game-info').style.display = 'flex';
         
@@ -80,10 +78,7 @@ function setupConn() {
         switch(data.type) {
             case 'START_GAME': startLevel(data.level, data.score, data.bombs, data.items); break;
             case 'SYNC_LEVEL': applyLevelData(data); break;
-            case 'TIME_SYNC':
-                timeLeft = data.time;
-                document.getElementById('timeDisplay').innerText = timeLeft;
-                break;
+            case 'TIME_SYNC': timeLeft = data.time; document.getElementById('timeDisplay').innerText = timeLeft; break;
             case 'LEVEL_END': showEndOverlay(data.isWin, data.total); break;
             case 'HOOK_POS': peerHook.angle = data.angle; peerHook.length = data.length; break;
             case 'ITEM_MOVE':
@@ -101,30 +96,19 @@ function setupConn() {
                 if (data.itemId) gameItems = gameItems.filter(it => it.id !== data.itemId);
                 updateUI();
                 break;
-            case 'POWER_UP':
-                hasPowerUp = true;
-                toast("队友获得了大力药水！");
-                break;
+            case 'POWER_UP': hasPowerUp = true; toast("队友获得了大力药水！"); break;
             case 'BAG_REWARD':
-                if (data.rewardType === 'money') {
-                    peerContribution += data.value;
-                    totalScore = myContribution + peerContribution;
-                } else if (data.rewardType === 'bomb') {
-                    bombs += 1;
-                }
+                if (data.rewardType === 'money') { peerContribution += data.value; totalScore = myContribution + peerContribution; }
+                else if (data.rewardType === 'bomb') { bombs += 1; }
                 updateUI();
                 break;
         }
     });
 
-    conn.on('close', () => {
-        alert("队友已断开连接。");
-        location.reload();
-    });
+    conn.on('close', () => { alert("队友已断开连接"); location.reload(); });
 }
 
-// --- 游戏逻辑部分 ---
-
+// --- 游戏逻辑 ---
 let currentLevel = 1, myContribution = 0, peerContribution = 0, totalScore = 0;
 let targetScore = 2000, timeLeft = 60, bombs = 3;
 let gameActive = false, gameItems = [];
@@ -154,16 +138,13 @@ function handleLuckyBag() {
     const rand = Math.random();
     if (rand < 0.4) {
         const money = Math.floor(Math.random() * 701) + 100;
-        myContribution += money;
-        toast(`💰 幸运口袋: $${money}`);
+        myContribution += money; toast(`💰 幸运口袋: $${money}`);
         if (conn) conn.send({ type: 'BAG_REWARD', rewardType: 'money', value: money });
     } else if (rand < 0.7) {
-        bombs += 1;
-        toast("💣 幸运口袋: 炸弹 +1");
+        bombs += 1; toast("💣 幸运口袋: 炸弹 +1");
         if (conn) conn.send({ type: 'BAG_REWARD', rewardType: 'bomb' });
     } else {
-        hasPowerUp = true;
-        toast("💪 幸运口袋: 大力药水！");
+        hasPowerUp = true; toast("💪 幸运口袋: 大力药水！");
         if (conn) conn.send({ type: 'POWER_UP' });
     }
 }
@@ -192,7 +173,6 @@ function applyLevelData(data) {
 
 function update() {
     if (!gameActive) return;
-
     if (myHook.state === 'SWING') {
         myHook.angle += SWING_SPEED * myHook.dir;
         if (Math.abs(myHook.angle) > 1.3) myHook.dir *= -1;
@@ -302,7 +282,6 @@ function showEndOverlay(isWin, finalTotal) {
     const nextBtn = document.getElementById('nextLevelBtn');
     const restartBtn = document.getElementById('restartBtn');
     nextBtn.style.display = 'none'; restartBtn.style.display = 'none';
-
     if (isWin) {
         document.getElementById('overlayTitle').innerText = "🎉 恭喜通过本关！";
         document.getElementById('overlayStatus').innerText = `总分: ${finalTotal}`;
