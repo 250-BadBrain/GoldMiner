@@ -3,33 +3,47 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>黄金矿工 - 闯关版</title>
+    <title>黄金矿工 - 双人联机专业版</title>
     <link rel="stylesheet" href="style.css">
+    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
 </head>
 <body>
-    <div class="game-container">
-        <div class="header">
-            <div class="info-bar">
-                <div class="info-item">第 <span id="levelDisplay">1</span> 关</div>
-                <div class="info-item">目标: <span id="targetDisplay">1000</span></div>
-                <div class="info-item" style="color: #ffcc00;">得分: <span id="scoreDisplay">0</span></div>
-                <div class="info-item" style="color: #ff4444;">时间: <span id="timeDisplay">60</span>s</div>
-                <div class="info-item">炸弹: <span id="bombDisplay">3</span></div>
+    <div id="ui-layer">
+        <div id="connection-panel" class="panel">
+            <div class="id-display">
+                我的 ID: <b id="myId" title="点击复制">获取中...</b>
+                <span id="copyTip">点击复制</span>
             </div>
-            <div class="hint">【空格】出钩 | 【E/↑】炸弹</div>
+            <div class="input-group">
+                <input type="text" id="peerIdInput" placeholder="粘贴队友 ID">
+                <button id="connectBtn">连接队友</button>
+            </div>
         </div>
         
-        <div style="position: relative;">
-            <canvas id="gameCanvas" width="800" height="500"></canvas>
-            
-            <div id="overlay" class="overlay" style="display: none;">
-                <h1 id="overlayTitle">恭喜过关！</h1>
-                <p id="overlayText">准备进入下一关...</p>
-                <button onclick="startNextLevel()" id="nextBtn">开始下一关</button>
-                <button onclick="resetGame()" id="restartBtn" style="display:none;">重新开始</button>
+        <div id="game-info" class="panel" style="display: none;">
+            <div class="mission-box">
+                <div id="levelDisplay" class="level-tag">第 1 关</div>
+                <div class="total-score-row">当前关卡总分: <span id="totalScoreDisplay">0</span> / <span id="targetScoreDisplay">2500</span></div>
+                <div id="timeBox">剩余时间: <span id="timeDisplay">60</span>s | 💣 共有炸弹: <span id="bombDisplay">3</span></div>
             </div>
         </div>
     </div>
+
+    <div id="canvas-container">
+        <canvas id="gameCanvas"></canvas>
+    </div>
+
+    <div id="overlay" class="overlay" style="display: none;">
+        <div class="overlay-content">
+            <h1 id="overlayTitle">准备就绪</h1>
+            <p id="overlayStatus">等待连接中...</p>
+            <div id="actionBtnContainer">
+                <button id="nextLevelBtn" class="big-btn" style="display:none;">开始游戏</button>
+                <button id="restartBtn" class="big-btn" style="display:none;">重新开始</button>
+            </div>
+        </div>
+    </div>
+
     <script src="game.js"></script>
 </body>
 </html>
