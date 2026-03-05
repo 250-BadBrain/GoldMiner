@@ -23,15 +23,15 @@
         <div id="game-info" class="panel" style="display: none;">
             <div class="mission-box">
                 <div id="levelDisplay" class="level-tag">第 1 关</div>
-                <div class="total-score-row">当前关卡总分: <span id="totalScoreDisplay">0</span> / <span id="targetScoreDisplay">2500</span></div>
-                <div id="timeBox">剩余时间: <span id="timeDisplay">60</span>s | 💣 共有炸弹: <span id="bombDisplay">3</span></div>
+                <div class="total-score-row">总分: <span id="totalScoreDisplay">0</span> / <span id="targetScoreDisplay">2500</span></div>
+                <div id="timeBox">剩余时间: <span id="timeDisplay">60</span>s | 💣 炸弹: <span id="bombDisplay">3</span></div>
             </div>
         </div>
     </div>
 
-    <div id="canvas-container">
-        <canvas id="gameCanvas"></canvas>
-    </div>
+    <div id="reward-toast" style="display:none; position:fixed; top:40%; left:50%; transform:translate(-50%,-50%); color:#ffcc00; font-size:40px; font-weight:bold; z-index:2000; text-shadow: 2px 2px 10px #000; pointer-events:none;"></div>
+
+    <div id="canvas-container"><canvas id="gameCanvas"></canvas></div>
 
     <div id="overlay" class="overlay" style="display: none;">
         <div class="overlay-content">
@@ -43,7 +43,6 @@
             </div>
         </div>
     </div>
-
     <script src="game.js"></script>
 </body>
 </html>
