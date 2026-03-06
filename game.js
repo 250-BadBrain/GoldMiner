@@ -10,28 +10,53 @@ const SWING_SPEED = 0.006;
 const FIRE_SPEED = 2.5;         
 const RETRACT_SPEED_BASE = 3.5; 
 
-// --- 网络配置 ---
-const peerConfig = { config: { 'iceServers': [{ url: 'stun:stun.l.google.com:19302' }, { url: 'stun:stun1.l.google.com:19302' }] } };
+// --- 网络配置与调试 ---
+// 注意：如果校园网防火墙很严，可能需要更换或增加更多的 STUN/TURN 服务器
+const peerConfig = { 
+    config: { 
+        'iceServers': [
+            { url: 'stun:stun.l.google.com:19302' }, 
+            { url: 'stun:stun1.l.google.com:19302' },
+            { url: 'stun:stun2.l.google.com:19302' }
+        ] 
+    },
+    debug: 3 // 开启 PeerJS 详细日志：3 表示全部信息
+};
+
 let peer = new Peer(peerConfig); 
 let conn = null;
 let isHost = false;
 
-peer.on('open', id => { document.getElementById('myId').innerText = id; });
+// 监听 Peer 实例错误
+peer.on('error', err => {
+    console.error('【网络错误】PeerJS 发生错误:', err.type, err);
+    alert(`网络错误: ${err.type}。如果是校园网环境，可能是防火墙拦截了 UDP 流量。`);
+});
+
+peer.on('open', id => { 
+    console.log('【网络状态】我的 Peer ID 已生成:', id);
+    document.getElementById('myId').innerText = id; 
+});
+
 document.getElementById('myId').onclick = () => {
     navigator.clipboard.writeText(document.getElementById('myId').innerText);
     document.getElementById('copyTip').innerText = "已复制";
     setTimeout(() => document.getElementById('copyTip').innerText = "点击复制", 2000);
 };
 
+// 被动连接监听 (作为主机)
 peer.on('connection', c => { 
+    console.log('【连接尝试】收到来自远程的连接请求:', c.peer);
     conn = c; 
     isHost = true; 
     setupConn(); 
 });
 
+// 主动发起连接 (作为客机)
 document.getElementById('connectBtn').onclick = () => {
     const pId = document.getElementById('peerIdInput').value.trim();
     if (!pId) return alert("请输入 ID");
+    console.log('【发起连接】尝试连接目标 ID:', pId);
     conn = peer.connect(pId, { reliable: true });
     isHost = false; 
     setupConn();
@@ -39,14 +64,29 @@ document.getElementById('connectBtn').onclick = () => {
 
 function setupConn() {
     if (!conn) return;
+
+    // 监听连接成功
     conn.on('open', () => {
+        console.log('【连接成功】P2P 通道已建立！');
         document.getElementById('connection-panel').style.display = 'none';
         document.getElementById('game-info').style.display = 'flex';
         myStartX = isHost ? (LOGIC_WIDTH/2 - 380) : (LOGIC_WIDTH/2 + 380);
         peerStartX = isHost ? (LOGIC_WIDTH/2 + 380) : (LOGIC_WIDTH/2 - 380);
         showWaitingOverlay();
     });
+
+    // 监听连接关闭
+    conn.on('close', () => {
+        console.warn('【连接断开】P2P 通道已关闭');
+        alert("与队友的连接已断开");
+        location.reload(); 
+    });
+
+    // 监听数据接收
     conn.on('data', data => {
+        // 注释掉高频日志防止刷屏，调试时可开启
+        // console.log('【数据接收】', data.type, data);
+
         switch(data.type) {
             case 'START_GAME': 
                 startLevel(data.level, data.myContrib, data.peerContrib, data.bombs, data.items, data.globalTotal); 
@@ -158,6 +198,7 @@ function handleLuckyBag() {
 }
 
 function startLevel(lvl, myStartScore, peerStartScore, bmb, items, globalTotal) {
+    console.log('【游戏指令】开始关卡:', lvl);
     document.getElementById('overlay').style.display = 'none';
     document.getElementById('shop-area').style.display = 'none';
     currentLevel = lvl;
@@ -328,7 +369,7 @@ function showEndOverlay(isWin, finalTotal, shopItems) {
 
     if (isWin) {
         document.getElementById('overlayTitle').innerText = "🎉 挑战成功！";
-        document.getElementById('overlayStatus').innerText = `当前总分: ${totalScore}`; // 使用全局变量
+        document.getElementById('overlayStatus').innerText = `当前总分: ${totalScore}`; 
         
         if (shopItems && shopItems.length > 0) {
             shopArea.style.display = 'block';
@@ -345,7 +386,7 @@ function showEndOverlay(isWin, finalTotal, shopItems) {
                         totalScore -= item.price;
                         applyShopEffect(item.effect);
                         el.classList.add('sold');
-                        updateUI(); // 核心：刷新顶部 UI 和 商店弹窗文字
+                        updateUI(); 
                         if (conn) conn.send({ type: 'BUY_SYNC', newTotal: totalScore, effect: item.effect, itemIndex: index });
                     } else if (totalScore < item.price) {
                         alert("钱不够啊，老铁！");
@@ -406,19 +447,15 @@ function showWaitingOverlay() {
 
 function resetHooks() { myHook = { angle: 0, dir: 1, length: 80, state: 'SWING', caughtItem: null }; peerHook = { angle: 0, length: 80 }; }
 
-// 修改后的 UI 刷新函数：同时刷新主 UI 和商店弹窗文字
 function updateUI() {
-    // 刷新主 UI
     document.getElementById('totalScoreDisplay').innerText = totalScore;
     document.getElementById('targetScoreDisplay').innerText = targetScore;
     document.getElementById('levelDisplay').innerText = `第 ${currentLevel} 关`;
     document.getElementById('bombDisplay').innerText = bombs;
     
-    // 核心修复：如果商店弹窗正开着，实时刷新弹窗里的状态文字
     const overlay = document.getElementById('overlay');
     const overlayStatus = document.getElementById('overlayStatus');
     if (overlay.style.display === 'flex' && !gameActive) {
-        // 如果是过关状态
         if (totalScore >= targetScore) {
             overlayStatus.innerText = `当前总分: ${totalScore}`;
         } else {
