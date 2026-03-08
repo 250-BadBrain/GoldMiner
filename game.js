@@ -103,8 +103,8 @@ function setupConn() {
                 gameItems = gameItems.filter(it => it.id !== data.itemId);
                 const added = data.contribution - peerContribution;
                 createScorePopup(peerStartX, HOOK_Y, added);
-                peerContribution = data.contribution; 
-                updateGlobalTotal();
+                peerContribution = data.contribution;
+                totalScore += added;
                 updateUI();
                 break;
             case 'BOMB_SYNC':
@@ -123,13 +123,18 @@ function setupConn() {
             case 'BAG_REWARD':
                 if (data.rewardType === 'money') { 
                     createScorePopup(peerStartX, HOOK_Y, data.value);
-                    peerContribution += data.value; 
+                    peerContribution += data.value;
+                    totalScore += data.value;
                     toast(`队友开出了 $${data.value}！`);
-                    updateGlobalTotal(); 
                 } else if (data.rewardType === 'bomb') { 
                     bombs += 1; 
                     toast("队友开出了 炸弹+1！");
                 }
+                updateUI();
+                break;
+            case 'BARREL_EXPLODE':
+                gameItems = gameItems.filter(it => it.id !== data.itemId);
+                handleExplosion(data.x, data.y, 150);
                 updateUI();
                 break;
         }
@@ -143,6 +148,7 @@ let gameActive = false, gameItems = [];
 let timerInterval = null;
 let hasPowerUp = false, stoneBookEffect = false, cloverEffect = false;
 let scorePopups = [];
+let explosionEffects = [];
 
 const SHOP_CATALOG = [
     { name: "大力药水", price: 300, effect: 'POWER', icon: "💪" },
@@ -162,7 +168,8 @@ const ITEM_TYPES = {
     STONE_SMALL:{ r: 22, score: 20,  weight: 1.5, color: '#888',    label: '石' },
     GOLD_BIG:   { r: 55, score: 500, weight: 3.5, color: '#FFD700', label: '大金' },
     STONE_BIG:  { r: 60, score: 50,  weight: 4.0, color: '#666',    label: '大石' },
-    LUCKY_BAG:  { r: 30, score: 0,   weight: 1.2, color: '#ff9933', label: '?' }
+    LUCKY_BAG:  { r: 30, score: 0,   weight: 1.2, color: '#ff9933', label: '?' },
+    BARREL:     { r: 35, score: 0,   weight: 2.2, color: '#8B4513', label: '炸', isBarrel: true }
 };
 
 function toast(msg) {
@@ -179,13 +186,34 @@ function updateGlobalTotal() {
     totalScore = myContribution + peerContribution;
 }
 
+function handleExplosion(x, y, radius = 150) {
+    explosionEffects.push({ x, y, radius, life: 30 });
+    const itemsToRemove = [];
+    for (let i = gameItems.length - 1; i >= 0; i--) {
+        const item = gameItems[i];
+        const dist = Math.sqrt((item.x - x)**2 + (item.y - y)**2);
+        if (dist < radius && dist > 0) {
+            if (item.isBarrel) {
+                handleExplosion(item.x, item.y, radius);
+            } else if (item.label !== '?') {
+                itemsToRemove.push(i);
+            }
+        }
+    }
+    itemsToRemove.sort((a, b) => b - a);
+    for (let i of itemsToRemove) {
+        gameItems.splice(i, 1);
+    }
+}
+
 function handleLuckyBag() {
     const boost = cloverEffect ? 1.5 : 1.0;
     const rand = Math.random();
     if (rand < 0.4) {
         const money = Math.floor((Math.random() * 701 + 100) * boost);
         createScorePopup(myStartX, HOOK_Y, money); 
-        myContribution += money; updateGlobalTotal();
+        myContribution += money;
+        totalScore += money;
         toast(`💰 幸运口袋: $${money}`);
         if (conn) conn.send({ type: 'BAG_REWARD', rewardType: 'money', value: money });
     } else if (rand < 0.7) {
@@ -210,6 +238,7 @@ function startLevel(lvl, myStartScore, peerStartScore, bmb, items, globalTotal) 
     targetScore = lvl * 1000 + (lvl > 1 ? 1500 : 200); 
     gameItems = items;
     scorePopups = [];
+    explosionEffects = [];
     resetHooks();
     gameActive = true; 
     if (isHost && conn) {
@@ -224,6 +253,7 @@ function applyLevelData(data) {
     myContribution = data.myContrib; peerContribution = data.peerContrib; 
     totalScore = data.globalTotal; bombs = data.bombs;
     hasPowerUp = false;
+    explosionEffects = [];
     document.getElementById('overlay').style.display = 'none';
     document.getElementById('shop-area').style.display = 'none';
     resetHooks(); gameActive = true; updateUI();
@@ -236,6 +266,10 @@ function update() {
         scorePopups[i].opacity = scorePopups[i].life / 60;
         if (scorePopups[i].life <= 0) scorePopups.splice(i, 1);
     }
+    for (let i = explosionEffects.length - 1; i >= 0; i--) {
+        explosionEffects[i].life--;
+        if (explosionEffects[i].life <= 0) explosionEffects.splice(i, 1);
+    }
 
     if (myHook.state === 'SWING') {
         myHook.angle += SWING_SPEED * myHook.dir;
@@ -246,7 +280,14 @@ function update() {
         const hY = HOOK_Y + myHook.length * Math.cos(myHook.angle);
         for (let item of gameItems) {
             if (!item.isCaught && Math.sqrt((hX - item.x)**2 + (hY - item.y)**2) < item.r) {
-                item.isCaught = true; myHook.caughtItem = item; myHook.state = 'RETRACT'; break;
+                if (item.isBarrel) {
+                    handleExplosion(hX, hY, 150);
+                    if (conn) conn.send({ type: 'BARREL_EXPLODE', itemId: item.id, x: hX, y: hY });
+                    gameItems = gameItems.filter(it => it.id !== item.id);
+                } else {
+                    item.isCaught = true; myHook.caughtItem = item; myHook.state = 'RETRACT';
+                }
+                break;
             }
         }
         if (myHook.length > 1100 || hX < 0 || hX > LOGIC_WIDTH || hY > LOGIC_HEIGHT) myHook.state = 'RETRACT';
@@ -267,8 +308,8 @@ function update() {
                     if (stoneBookEffect && myHook.caughtItem.label.includes('石')) score *= 3;
                     createScorePopup(myStartX, HOOK_Y, score);
                     myContribution += score;
+                    totalScore += score;
                 }
-                updateGlobalTotal();
                 if (conn) conn.send({ type: 'ITEM_COLLECTED', itemId: myHook.caughtItem.id, contribution: myContribution });
                 gameItems = gameItems.filter(it => it.id !== myHook.caughtItem.id);
                 updateUI();
@@ -299,6 +340,15 @@ function draw() {
         ctx.fillStyle = `rgba(255, 255, 0, ${p.opacity})`; ctx.font = "bold 36px Arial";
         ctx.textAlign = "center"; ctx.fillText(p.score, p.x, p.y);
     });
+    
+    explosionEffects.forEach(exp => {
+        const alpha = (exp.life / 30) * 0.6;
+        ctx.fillStyle = `rgba(255, 100, 0, ${alpha})`;
+        ctx.beginPath();
+        ctx.arc(exp.x, exp.y, exp.radius, 0, Math.PI * 2);
+        ctx.fill();
+    });
+    
     update();
     requestAnimationFrame(draw);
 }
@@ -321,7 +371,7 @@ function generateItems() {
         let attempts = 0;
         while (attempts < 50) {
             const rand = Math.random();
-            let type = rand > 0.93 ? ITEM_TYPES.DIAMOND : (rand > 0.86 ? ITEM_TYPES.LUCKY_BAG : (rand > 0.7 ? ITEM_TYPES.STONE_BIG : (rand > 0.4 ? ITEM_TYPES.GOLD_BIG : (rand > 0.2 ? ITEM_TYPES.GOLD_SMALL : ITEM_TYPES.STONE_SMALL))));
+            let type = rand > 0.96 ? ITEM_TYPES.BARREL : (rand > 0.93 ? ITEM_TYPES.DIAMOND : (rand > 0.86 ? ITEM_TYPES.LUCKY_BAG : (rand > 0.7 ? ITEM_TYPES.STONE_BIG : (rand > 0.4 ? ITEM_TYPES.GOLD_BIG : (rand > 0.2 ? ITEM_TYPES.GOLD_SMALL : ITEM_TYPES.STONE_SMALL)))));
             let newItem = { id: Math.random(), x: 150 + Math.random() * (LOGIC_WIDTH - 300), y: 300 + Math.random() * (LOGIC_HEIGHT - 450), isCaught: false, ...type };
             if (!items.some(e => Math.sqrt((e.x-newItem.x)**2 + (e.y-newItem.y)**2) < (e.r+newItem.r+40))) { items.push(newItem); break; }
             attempts++;
@@ -448,8 +498,8 @@ function showWaitingOverlay() {
 function resetHooks() { myHook = { angle: 0, dir: 1, length: 80, state: 'SWING', caughtItem: null }; peerHook = { angle: 0, length: 80 }; }
 
 function updateUI() {
-    document.getElementById('totalScoreDisplay').innerText = totalScore;
-    document.getElementById('targetScoreDisplay').innerText = targetScore;
+    document.getElementById('totalScoreDisplay').innerText = `$${totalScore}`;
+    document.getElementById('targetScoreDisplay').innerText = `$${targetScore}`;
     document.getElementById('levelDisplay').innerText = `第 ${currentLevel} 关`;
     document.getElementById('bombDisplay').innerText = bombs;
     
@@ -457,9 +507,9 @@ function updateUI() {
     const overlayStatus = document.getElementById('overlayStatus');
     if (overlay.style.display === 'flex' && !gameActive) {
         if (totalScore >= targetScore) {
-            overlayStatus.innerText = `当前总分: ${totalScore}`;
+            overlayStatus.innerText = `当前总钱: $${totalScore}`;
         } else {
-            overlayStatus.innerText = `总分: ${totalScore} / 目标: ${targetScore}`;
+            overlayStatus.innerText = `总钱: $${totalScore} / 目标: $${targetScore}`;
         }
     }
 }
