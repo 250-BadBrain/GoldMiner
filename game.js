@@ -5,10 +5,10 @@ const LOGIC_HEIGHT = 900;
 canvas.width = LOGIC_WIDTH;
 canvas.height = LOGIC_HEIGHT;
 
-// --- 数值调整：低速平衡模式 ---
-const SWING_SPEED = 0.006;      
-const FIRE_SPEED = 2.5;         
-const RETRACT_SPEED_BASE = 3.5; 
+// --- 数值调整：更贴近原版体验 ---
+const SWING_SPEED = 0.005;      
+const FIRE_SPEED = 2;         
+const RETRACT_SPEED_BASE = 2; 
 
 // --- 网络配置与调试 ---
 // 注意：如果校园网防火墙很严，可能需要更换或增加更多的 STUN/TURN 服务器
@@ -16,8 +16,8 @@ const peerConfig = {
     config: { 
         'iceServers': [
             { url: 'stun:stun.l.google.com:19302' }, 
-            { url: 'stun:stun1.l.google.com:19302' },
-            { url: 'stun:stun2.l.google.com:19302' }
+            { urls: 'stun:stun.miwifi.com:3478' },
+            { urls: 'stun:stun.qq.com:3478' }
         ] 
     },
     debug: 3 // 开启 PeerJS 详细日志：3 表示全部信息
@@ -89,15 +89,21 @@ function setupConn() {
 
         switch(data.type) {
             case 'START_GAME': 
-                startLevel(data.level, data.myContrib, data.peerContrib, data.bombs, data.items, data.globalTotal); 
+                startLevel(data.level, data.hostContrib, data.guestContrib, data.bombs, data.items, data.globalTotal); 
                 break;
             case 'SYNC_LEVEL': applyLevelData(data); break;
             case 'TIME_SYNC': timeLeft = data.time; document.getElementById('timeDisplay').innerText = timeLeft; break;
             case 'LEVEL_END': showEndOverlay(data.isWin, data.total, data.shopItems); break;
             case 'HOOK_POS': peerHook.angle = data.angle; peerHook.length = data.length; break;
             case 'ITEM_MOVE':
-                let item = gameItems.find(it => it.id === data.itemId);
-                if (item) { item.x = data.x; item.y = data.y; item.isCaught = true; }
+                let itemMove = gameItems.find(it => it.id === data.itemId);
+                if (itemMove) { 
+                    itemMove.x = data.x; itemMove.y = data.y; itemMove.isCaught = true; 
+                    if (!isHost && myHook.caughtItem && myHook.caughtItem.id === data.itemId) {
+                        myHook.caughtItem = null;
+                        myHook.state = 'RETRACT';
+                    }
+                }
                 break;
             case 'ITEM_COLLECTED':
                 gameItems = gameItems.filter(it => it.id !== data.itemId);
@@ -146,15 +152,16 @@ let currentLevel = 1, myContribution = 0, peerContribution = 0, totalScore = 0;
 let targetScore = 1200, timeLeft = 60, bombs = 3; 
 let gameActive = false, gameItems = [];
 let timerInterval = null;
-let hasPowerUp = false, stoneBookEffect = false, cloverEffect = false;
+let hasPowerUp = false, stoneBookEffect = false, cloverEffect = false, diamondBoostEffect = false;
 let scorePopups = [];
 let explosionEffects = [];
 
 const SHOP_CATALOG = [
-    { name: "大力药水", price: 300, effect: 'POWER', icon: "💪" },
-    { name: "炸弹", price: 150, effect: 'BOMB', icon: "💣" },
-    { name: "石头之书", price: 200, effect: 'STONE_BOOK', icon: "📖" },
-    { name: "优质四叶草", price: 250, effect: 'CLOVER', icon: "🍀" }
+    { name: "大力药水", effect: 'POWER', icon: "💪", getPrice: () => Math.floor(Math.random() * 211) + 10 },
+    { name: "炸药", effect: 'BOMB', icon: "💣", getPrice: () => Math.floor(Math.random() * 328) + 10 },
+    { name: "石头收藏书", effect: 'STONE_BOOK', icon: "📖", getPrice: () => Math.floor(Math.random() * 224) + 10 },
+    { name: "幸运草", effect: 'CLOVER', icon: "🍀", getPrice: () => Math.floor(Math.random() * 194) + 10 },
+    { name: "优质钻石液", effect: 'DIAMOND_BOOST', icon: "💎", getPrice: () => Math.floor(Math.random() * 338) + 10 }
 ];
 
 const HOOK_Y = 120;
@@ -163,14 +170,328 @@ let myHook = { angle: 0, dir: 1, length: 80, state: 'SWING', caughtItem: null };
 let peerHook = { angle: 0, length: 80 };
 
 const ITEM_TYPES = {
-    DIAMOND:    { r: 15, score: 600, weight: 0.8, color: '#00ffff', label: '钻' },
-    GOLD_SMALL: { r: 25, score: 100, weight: 1.5, color: '#FFD700', label: '金' },
-    STONE_SMALL:{ r: 22, score: 20,  weight: 1.5, color: '#888',    label: '石' },
-    GOLD_BIG:   { r: 55, score: 500, weight: 3.5, color: '#FFD700', label: '大金' },
-    STONE_BIG:  { r: 60, score: 50,  weight: 4.0, color: '#666',    label: '大石' },
-    LUCKY_BAG:  { r: 30, score: 0,   weight: 1.2, color: '#ff9933', label: '?' },
-    BARREL:     { r: 35, score: 0,   weight: 2.2, color: '#8B4513', label: '炸', isBarrel: true }
+    DIAMOND:     { r: 15, score: 600, weight: 0,    color: '#00ffff', label: '钻', type: 'DIAMOND' },
+    GOLD_HUGE:   { r: 60, score: 500, weight: 13.5, color: '#FFD700', label: '$500', type: 'GOLD_HUGE' },
+    GOLD_LARGE:  { r: 45, score: 250, weight: 12.0, color: '#FFD700', label: '$250', type: 'GOLD_LARGE' },
+    GOLD_MEDIUM: { r: 30, score: 100, weight: 9.0,  color: '#FFD700', label: '$100', type: 'GOLD_MEDIUM' },
+    GOLD_SMALL:  { r: 20, score: 50,  weight: 5.0,  color: '#FFD700', label: '$50', type: 'GOLD_SMALL' },
+    STONE_HUGE:  { r: 55, score: 20,  weight: 14.0, color: '#666',    label: '$20', type: 'STONE_HUGE' },
+    STONE_SMALL: { r: 25, score: 11,  weight: 11.0, color: '#888',    label: '$11', type: 'STONE_SMALL' },
+    LUCKY_BAG:   { r: 30, score: 0,   weight: 0,    color: '#ff9933', label: '?', type: 'LUCKY_BAG' },
+    BARREL:      { r: 35, score: 0,   weight: 0,    color: '#8B4513', label: 'TNT', isBarrel: true, type: 'BARREL' },
+    MOUSE:       { r: 20, score: 2,   weight: 0,    color: '#A9A9A9', label: '鼠', isMouse: true, speed: 2, dir: 1, type: 'MOUSE' },
+    MOUSE_DIAMOND: { r: 20, score: 602, weight: 0,  color: '#00ffff', label: '钻鼠', isMouse: true, hasDiamond: true, speed: 2, dir: 1, type: 'MOUSE_DIAMOND' },
+    BOMBER:      { r: 25, score: 0,   weight: 0,    color: '#8B0000', label: '炸药鼠', isBarrel: true, speed: 1.5, dir: 1, type: 'BOMBER' }
 };
+
+// --- 固定关卡设计 (原版体验前10关) ---
+const LEVEL_CONFIGS = [
+    {   // 第 1 关: 基础热身，大金小金小石头
+        targetScore: 650,
+        items: [
+            { type: 'GOLD_HUGE', x: 800, y: 650 },
+            { type: 'GOLD_LARGE', x: 400, y: 400 },
+            { type: 'GOLD_LARGE', x: 1200, y: 450 },
+            { type: 'GOLD_MEDIUM', x: 700, y: 500 },
+            { type: 'GOLD_SMALL', x: 900, y: 500 },
+            { type: 'GOLD_SMALL', x: 500, y: 450 },
+            { type: 'STONE_SMALL', x: 600, y: 350 },
+            { type: 'STONE_SMALL', x: 1000, y: 380 },
+            { type: 'STONE_HUGE', x: 800, y: 400 },
+            { type: 'LUCKY_BAG', x: 200, y: 600 },
+            { type: 'LUCKY_BAG', x: 1400, y: 580 }
+        ]
+    },
+    {   // 第 2 关: 石头增多，出现了更远的金子
+        targetScore: 3150,
+        items: [
+            { type: 'GOLD_HUGE', x: 300, y: 700 },
+            { type: 'GOLD_HUGE', x: 1300, y: 650 },
+            { type: 'GOLD_LARGE', x: 800, y: 750 },
+            { type: 'GOLD_MEDIUM', x: 500, y: 500 },
+            { type: 'GOLD_MEDIUM', x: 1100, y: 500 },
+            { type: 'GOLD_SMALL', x: 800, y: 450 },
+            { type: 'STONE_HUGE', x: 750, y: 600 },
+            { type: 'STONE_HUGE', x: 950, y: 600 },
+            { type: 'STONE_SMALL', x: 450, y: 650 },
+            { type: 'STONE_SMALL', x: 1150, y: 600 },
+            { type: 'STONE_SMALL', x: 650, y: 500 },
+            { type: 'LUCKY_BAG', x: 400, y: 800 },
+            { type: 'LUCKY_BAG', x: 1200, y: 800 }
+        ]
+    },
+    {   // 第 3 关: 引入钻石与炸药桶
+        targetScore: 5450,
+        items: [
+            { type: 'DIAMOND', x: 400, y: 750 },
+            { type: 'DIAMOND', x: 1200, y: 750 },
+            { type: 'BARREL', x: 450, y: 650 },
+            { type: 'BARREL', x: 1150, y: 650 },
+            { type: 'GOLD_HUGE', x: 800, y: 750 },
+            { type: 'STONE_HUGE', x: 700, y: 650 },
+            { type: 'STONE_HUGE', x: 900, y: 650 },
+            { type: 'GOLD_LARGE', x: 600, y: 550 },
+            { type: 'GOLD_LARGE', x: 1000, y: 550 },
+            { type: 'GOLD_MEDIUM', x: 800, y: 500 },
+            { type: 'LUCKY_BAG', x: 800, y: 350 },
+            { type: 'LUCKY_BAG', x: 200, y: 450 },
+            { type: 'LUCKY_BAG', x: 1400, y: 450 },
+            { type: 'STONE_SMALL', x: 300, y: 500 },
+            { type: 'STONE_SMALL', x: 1300, y: 500 }
+        ]
+    },
+    {   // 第 4 关: 骨头(用小石头代替)阵，狭缝抓钻
+        targetScore: 7750,
+        items: [
+            { type: 'DIAMOND', x: 800, y: 800 },
+            { type: 'DIAMOND', x: 700, y: 800 },
+            { type: 'DIAMOND', x: 900, y: 800 },
+            { type: 'STONE_SMALL', x: 750, y: 650 },
+            { type: 'STONE_SMALL', x: 850, y: 650 },
+            { type: 'STONE_SMALL', x: 700, y: 550 },
+            { type: 'STONE_SMALL', x: 900, y: 550 },
+            { type: 'STONE_HUGE', x: 800, y: 600 },
+            { type: 'GOLD_HUGE', x: 250, y: 700 },
+            { type: 'GOLD_HUGE', x: 1350, y: 700 },
+            { type: 'GOLD_LARGE', x: 450, y: 600 },
+            { type: 'GOLD_LARGE', x: 1150, y: 600 },
+            { type: 'BARREL', x: 350, y: 650 },
+            { type: 'BARREL', x: 1250, y: 650 },
+            { type: 'LUCKY_BAG', x: 100, y: 400 },
+            { type: 'LUCKY_BAG', x: 1500, y: 400 }
+        ]
+    },
+    {   // 第 5 关: 巨型金块与很多炸药，加入了移动的小动物
+        targetScore: 10050,
+        items: [
+            { type: 'GOLD_HUGE', x: 800, y: 800 },
+            { type: 'GOLD_HUGE', x: 600, y: 750 },
+            { type: 'GOLD_HUGE', x: 1000, y: 750 },
+            { type: 'GOLD_HUGE', x: 400, y: 700 },
+            { type: 'GOLD_HUGE', x: 1200, y: 700 },
+            { type: 'BARREL', x: 700, y: 680 },
+            { type: 'BARREL', x: 900, y: 680 },
+            { type: 'BARREL', x: 500, y: 620 },
+            { type: 'BARREL', x: 1100, y: 620 },
+            { type: 'DIAMOND', x: 800, y: 650 },
+            { type: 'STONE_HUGE', x: 300, y: 500 },
+            { type: 'STONE_HUGE', x: 1300, y: 500 },
+            { type: 'MOUSE', x: 200, y: 400 },
+            { type: 'MOUSE_DIAMOND', x: 1400, y: 450 },
+            { type: 'BOMBER', x: 800, y: 350 },
+            { type: 'GOLD_SMALL', x: 800, y: 400 },
+            { type: 'GOLD_SMALL', x: 700, y: 500 },
+            { type: 'GOLD_SMALL', x: 900, y: 500 }
+        ]
+    },
+    {   // 第 6 关: 钻石群与石头海
+        targetScore: 12350,
+        items: [
+            { type: 'DIAMOND', x: 200, y: 800 },
+            { type: 'DIAMOND', x: 300, y: 800 },
+            { type: 'DIAMOND', x: 1300, y: 800 },
+            { type: 'DIAMOND', x: 1400, y: 800 },
+            { type: 'STONE_HUGE', x: 250, y: 650 },
+            { type: 'STONE_HUGE', x: 1350, y: 650 },
+            { type: 'STONE_HUGE', x: 600, y: 550 },
+            { type: 'STONE_HUGE', x: 1000, y: 550 },
+            { type: 'STONE_HUGE', x: 800, y: 600 },
+            { type: 'GOLD_LARGE', x: 800, y: 750 },
+            { type: 'GOLD_LARGE', x: 600, y: 750 },
+            { type: 'GOLD_LARGE', x: 1000, y: 750 },
+            { type: 'LUCKY_BAG', x: 400, y: 500 },
+            { type: 'LUCKY_BAG', x: 1200, y: 500 },
+            { type: 'BARREL', x: 800, y: 500 }
+        ]
+    },
+    {   // 第 7 关: 金字塔型分布
+        targetScore: 14650,
+        items: [
+            { type: 'DIAMOND', x: 800, y: 820 },
+            { type: 'GOLD_HUGE', x: 700, y: 750 },
+            { type: 'GOLD_HUGE', x: 900, y: 750 },
+            { type: 'GOLD_LARGE', x: 600, y: 680 },
+            { type: 'GOLD_LARGE', x: 800, y: 680 },
+            { type: 'GOLD_LARGE', x: 1000, y: 680 },
+            { type: 'STONE_HUGE', x: 500, y: 600 },
+            { type: 'STONE_HUGE', x: 1100, y: 600 },
+            { type: 'STONE_SMALL', x: 400, y: 500 },
+            { type: 'STONE_SMALL', x: 1200, y: 500 },
+            { type: 'BARREL', x: 700, y: 600 },
+            { type: 'BARREL', x: 900, y: 600 },
+            { type: 'LUCKY_BAG', x: 800, y: 500 },
+            { type: 'LUCKY_BAG', x: 300, y: 400 },
+            { type: 'LUCKY_BAG', x: 1300, y: 400 }
+        ]
+    },
+    {   // 第 8 关: 星星点点的碎片
+        targetScore: 16950,
+        items: [
+            { type: 'DIAMOND', x: 100, y: 700 },
+            { type: 'DIAMOND', x: 300, y: 800 },
+            { type: 'DIAMOND', x: 1500, y: 700 },
+            { type: 'DIAMOND', x: 1300, y: 800 },
+            { type: 'GOLD_SMALL', x: 200, y: 500 },
+            { type: 'GOLD_SMALL', x: 400, y: 600 },
+            { type: 'GOLD_SMALL', x: 1400, y: 500 },
+            { type: 'GOLD_SMALL', x: 1200, y: 600 },
+            { type: 'GOLD_SMALL', x: 700, y: 500 },
+            { type: 'GOLD_SMALL', x: 900, y: 500 },
+            { type: 'STONE_HUGE', x: 800, y: 650 },
+            { type: 'STONE_HUGE', x: 800, y: 800 },
+            { type: 'GOLD_HUGE', x: 600, y: 800 },
+            { type: 'GOLD_HUGE', x: 1000, y: 800 },
+            { type: 'BARREL', x: 250, y: 750 },
+            { type: 'BARREL', x: 1350, y: 750 },
+            { type: 'LUCKY_BAG', x: 800, y: 400 }
+        ]
+    },
+    {   // 第 9 关: 黄金盆地
+        targetScore: 19250,
+        items: [
+            { type: 'GOLD_HUGE', x: 400, y: 800 },
+            { type: 'GOLD_HUGE', x: 600, y: 800 },
+            { type: 'GOLD_HUGE', x: 800, y: 800 },
+            { type: 'GOLD_HUGE', x: 1000, y: 800 },
+            { type: 'GOLD_HUGE', x: 1200, y: 800 },
+            { type: 'DIAMOND', x: 800, y: 700 },
+            { type: 'BARREL', x: 500, y: 750 },
+            { type: 'BARREL', x: 1100, y: 750 },
+            { type: 'STONE_HUGE', x: 500, y: 650 },
+            { type: 'STONE_HUGE', x: 1100, y: 650 },
+            { type: 'STONE_SMALL', x: 400, y: 550 },
+            { type: 'STONE_SMALL', x: 1200, y: 550 },
+            { type: 'GOLD_MEDIUM', x: 700, y: 600 },
+            { type: 'GOLD_MEDIUM', x: 900, y: 600 },
+            { type: 'LUCKY_BAG', x: 200, y: 600 },
+            { type: 'LUCKY_BAG', x: 1400, y: 600 },
+            { type: 'LUCKY_BAG', x: 800, y: 500 }
+        ]
+    },
+    {   // 第 10 关: 钻石风暴与动物乱窜，最难的一关
+        targetScore: 21550,
+        items: [
+            { type: 'DIAMOND', x: 200, y: 850 },
+            { type: 'DIAMOND', x: 500, y: 850 },
+            { type: 'DIAMOND', x: 800, y: 850 },
+            { type: 'DIAMOND', x: 1100, y: 850 },
+            { type: 'DIAMOND', x: 1400, y: 850 },
+            { type: 'BARREL', x: 350, y: 800 },
+            { type: 'BARREL', x: 650, y: 800 },
+            { type: 'BARREL', x: 950, y: 800 },
+            { type: 'BARREL', x: 1250, y: 800 },
+            { type: 'BOMBER', x: 800, y: 650 },
+            { type: 'BOMBER', x: 400, y: 600 },
+            { type: 'BOMBER', x: 1200, y: 600 },
+            { type: 'MOUSE_DIAMOND', x: 800, y: 550 },
+            { type: 'MOUSE', x: 300, y: 500 },
+            { type: 'MOUSE', x: 1300, y: 500 },
+            { type: 'STONE_HUGE', x: 350, y: 700 },
+            { type: 'STONE_HUGE', x: 650, y: 700 },
+            { type: 'STONE_HUGE', x: 950, y: 700 },
+            { type: 'STONE_HUGE', x: 1250, y: 700 },
+            { type: 'GOLD_LARGE', x: 200, y: 600 },
+            { type: 'GOLD_LARGE', x: 800, y: 600 },
+            { type: 'GOLD_LARGE', x: 1400, y: 600 },
+            { type: 'LUCKY_BAG', x: 500, y: 500 },
+            { type: 'LUCKY_BAG', x: 1100, y: 500 }
+        ]
+    },
+    {   // 第 11 关: 遮天蔽日的石头与猪突猛进（纯静态替代）的炸药结构
+        targetScore: 23850,
+        items: [
+            { type: 'GOLD_HUGE', x: 800, y: 800 },
+            { type: 'DIAMOND', x: 900, y: 800 },
+            { type: 'STONE_HUGE', x: 750, y: 650 },
+            { type: 'STONE_HUGE', x: 850, y: 650 },
+            { type: 'STONE_SMALL', x: 700, y: 550 },
+            { type: 'STONE_SMALL', x: 900, y: 550 },
+            { type: 'BARREL', x: 800, y: 500 },
+            { type: 'LUCKY_BAG', x: 600, y: 450 },
+            { type: 'LUCKY_BAG', x: 1000, y: 450 },
+            { type: 'GOLD_LARGE', x: 300, y: 700 },
+            { type: 'GOLD_LARGE', x: 1300, y: 700 },
+            { type: 'STONE_HUGE', x: 300, y: 550 },
+            { type: 'STONE_HUGE', x: 1300, y: 550 },
+            { type: 'DIAMOND', x: 200, y: 800 },
+            { type: 'DIAMOND', x: 1400, y: 800 }
+        ]
+    },
+    {   // 第 12 关: 丰富的金库
+        targetScore: 26150,
+        items: [
+            { type: 'GOLD_HUGE', x: 400, y: 750 },
+            { type: 'GOLD_HUGE', x: 800, y: 750 },
+            { type: 'GOLD_HUGE', x: 1200, y: 750 },
+            { type: 'GOLD_LARGE', x: 250, y: 600 },
+            { type: 'GOLD_LARGE', x: 550, y: 600 },
+            { type: 'GOLD_LARGE', x: 1050, y: 600 },
+            { type: 'GOLD_LARGE', x: 1350, y: 600 },
+            { type: 'GOLD_MEDIUM', x: 700, y: 500 },
+            { type: 'GOLD_MEDIUM', x: 900, y: 500 },
+            { type: 'STONE_SMALL', x: 800, y: 400 },
+            { type: 'LUCKY_BAG', x: 150, y: 450 },
+            { type: 'LUCKY_BAG', x: 1450, y: 450 }
+        ]
+    },
+    {   // 第 13 关: 密集骨矿（用石头和炸药代替）
+        targetScore: 28450,
+        items: [
+            { type: 'DIAMOND', x: 800, y: 850 },
+            { type: 'STONE_SMALL', x: 700, y: 750 },
+            { type: 'STONE_SMALL', x: 900, y: 750 },
+            { type: 'STONE_SMALL', x: 600, y: 650 },
+            { type: 'STONE_SMALL', x: 1000, y: 650 },
+            { type: 'STONE_SMALL', x: 500, y: 550 },
+            { type: 'STONE_SMALL', x: 1100, y: 550 },
+            { type: 'BARREL', x: 800, y: 650 },
+            { type: 'GOLD_HUGE', x: 200, y: 800 },
+            { type: 'GOLD_HUGE', x: 1400, y: 800 },
+            { type: 'STONE_HUGE', x: 250, y: 650 },
+            { type: 'STONE_HUGE', x: 1350, y: 650 },
+            { type: 'LUCKY_BAG', x: 400, y: 400 },
+            { type: 'LUCKY_BAG', x: 1200, y: 400 }
+        ]
+    },
+    {   // 第 14 关: 大量钻石与福袋
+        targetScore: 30750,
+        items: [
+            { type: 'DIAMOND', x: 300, y: 800 },
+            { type: 'DIAMOND', x: 500, y: 800 },
+            { type: 'DIAMOND', x: 1100, y: 800 },
+            { type: 'DIAMOND', x: 1300, y: 800 },
+            { type: 'LUCKY_BAG', x: 350, y: 600 },
+            { type: 'LUCKY_BAG', x: 450, y: 600 },
+            { type: 'LUCKY_BAG', x: 1150, y: 600 },
+            { type: 'LUCKY_BAG', x: 1250, y: 600 },
+            { type: 'STONE_HUGE', x: 800, y: 700 },
+            { type: 'STONE_HUGE', x: 800, y: 500 },
+            { type: 'LUCKY_BAG', x: 700, y: 600 },
+            { type: 'LUCKY_BAG', x: 900, y: 600 },
+            { type: 'BARREL', x: 400, y: 700 },
+            { type: 'BARREL', x: 1200, y: 700 }
+        ]
+    },
+    {   // 第 15 关: 终极组合
+        targetScore: 33050,
+        items: [
+            { type: 'GOLD_HUGE', x: 800, y: 850 },
+            { type: 'GOLD_HUGE', x: 400, y: 850 },
+            { type: 'GOLD_HUGE', x: 1200, y: 850 },
+            { type: 'BARREL', x: 600, y: 800 },
+            { type: 'BARREL', x: 1000, y: 800 },
+            { type: 'DIAMOND', x: 600, y: 850 },
+            { type: 'DIAMOND', x: 1000, y: 850 },
+            { type: 'STONE_HUGE', x: 400, y: 700 },
+            { type: 'STONE_HUGE', x: 800, y: 700 },
+            { type: 'STONE_HUGE', x: 1200, y: 700 },
+            { type: 'GOLD_MEDIUM', x: 200, y: 600 },
+            { type: 'GOLD_MEDIUM', x: 1400, y: 600 },
+            { type: 'LUCKY_BAG', x: 600, y: 500 },
+            { type: 'LUCKY_BAG', x: 1000, y: 500 }
+        ]
+    }
+];
 
 function toast(msg) {
     const el = document.getElementById('reward-toast');
@@ -191,10 +512,13 @@ function handleExplosion(x, y, radius = 150) {
     const itemsToRemove = [];
     for (let i = gameItems.length - 1; i >= 0; i--) {
         const item = gameItems[i];
+        if (item.isDestroyed) continue;
         const dist = Math.sqrt((item.x - x)**2 + (item.y - y)**2);
-        if (dist < radius && dist > 0) {
+        if (dist < radius && dist >= 0) {
+            item.isDestroyed = true;
             if (item.isBarrel) {
                 handleExplosion(item.x, item.y, radius);
+                itemsToRemove.push(i);
             } else if (item.label !== '?') {
                 itemsToRemove.push(i);
             }
@@ -225,17 +549,25 @@ function handleLuckyBag() {
     }
 }
 
-function startLevel(lvl, myStartScore, peerStartScore, bmb, items, globalTotal) {
+function startLevel(lvl, hostScore, guestScore, bmb, items, globalTotal) {
     console.log('【游戏指令】开始关卡:', lvl);
     document.getElementById('overlay').style.display = 'none';
     document.getElementById('shop-area').style.display = 'none';
     currentLevel = lvl;
     bombs = bmb;
-    myContribution = myStartScore; 
-    peerContribution = peerStartScore; 
+    myContribution = isHost ? hostScore : guestScore; 
+    peerContribution = isHost ? guestScore : hostScore; 
     totalScore = globalTotal; 
     hasPowerUp = false; 
-    targetScore = lvl * 1000 + (lvl > 1 ? 1500 : 200); 
+    
+    // 应用关卡设计中的目标分数或计算目标分数
+    if (LEVEL_CONFIGS[lvl - 1]) {
+        targetScore = LEVEL_CONFIGS[lvl - 1].targetScore;
+    } else {
+        // 第一关 650，第二关 3150，之后每关增加 2300，或者简单的递增
+        targetScore = 3150 + (lvl - 2) * 2300; 
+    }
+    
     gameItems = items;
     scorePopups = [];
     explosionEffects = [];
@@ -271,6 +603,16 @@ function update() {
         if (explosionEffects[i].life <= 0) explosionEffects.splice(i, 1);
     }
 
+    // 独立更新带有移动属性的物品（老鼠等）
+    gameItems.forEach(item => {
+        if (!item.isCaught && item.speed) {
+            item.x += item.speed * (item.dir || 1);
+            if (item.x < item.r || item.x > LOGIC_WIDTH - item.r) {
+                item.dir = (item.dir || 1) * -1;
+            }
+        }
+    });
+
     if (myHook.state === 'SWING') {
         myHook.angle += SWING_SPEED * myHook.dir;
         if (Math.abs(myHook.angle) > 1.3) myHook.dir *= -1;
@@ -293,7 +635,10 @@ function update() {
         if (myHook.length > 1100 || hX < 0 || hX > LOGIC_WIDTH || hY > LOGIC_HEIGHT) myHook.state = 'RETRACT';
     } else if (myHook.state === 'RETRACT') {
         let baseSpeed = hasPowerUp ? (RETRACT_SPEED_BASE * 2.5) : RETRACT_SPEED_BASE;
-        let s = myHook.caughtItem ? Math.max(0.6, baseSpeed - myHook.caughtItem.weight) : baseSpeed;
+        // 原版中不同重量对应不同的回收速度，基础为 RETRACT_SPEED_BASE
+        // 这里使用公式将重量转化为速度的影响。重量为 0 会保持原速，重量很大则速度变慢。
+        let s = myHook.caughtItem ? baseSpeed / (1 + myHook.caughtItem.weight * 0.25) : baseSpeed;
+        // 如果是老鼠，且没带钻石，速度和空钩一样快。但上面的重量都是0，所以会自动按照原速返回
         myHook.length -= s;
         if (myHook.caughtItem) {
             myHook.caughtItem.x = myStartX + myHook.length * Math.sin(myHook.angle);
@@ -306,6 +651,7 @@ function update() {
                 else {
                     let score = myHook.caughtItem.score;
                     if (stoneBookEffect && myHook.caughtItem.label.includes('石')) score *= 3;
+                    if (diamondBoostEffect && myHook.caughtItem.label.includes('钻')) score = 900; 
                     createScorePopup(myStartX, HOOK_Y, score);
                     myContribution += score;
                     totalScore += score;
@@ -327,10 +673,51 @@ function draw() {
     ctx.fillStyle = "#5d3a1a"; ctx.fillRect(0, 160, LOGIC_WIDTH, 12); 
     
     gameItems.forEach(item => {
-        ctx.beginPath(); ctx.arc(item.x, item.y, item.r, 0, Math.PI*2);
-        ctx.fillStyle = item.color; ctx.fill(); ctx.strokeStyle = "#000"; ctx.lineWidth = 2; ctx.stroke();
-        ctx.fillStyle = "black"; ctx.font = "bold 18px Arial"; ctx.textAlign = "center";
-        ctx.fillText(item.label, item.x, item.y + 8);
+        if (item.type === 'DIAMOND') {
+            ctx.beginPath();
+            ctx.moveTo(item.x, item.y - item.r);
+            ctx.lineTo(item.x + item.r, item.y);
+            ctx.lineTo(item.x, item.y + item.r);
+            ctx.lineTo(item.x - item.r, item.y);
+            ctx.closePath();
+            ctx.fillStyle = item.color; ctx.fill(); ctx.strokeStyle = "#000"; ctx.lineWidth = 2; ctx.stroke();
+            
+            // 钻石的内切线表现折射
+            ctx.beginPath();
+            ctx.moveTo(item.x - item.r*0.5, item.y - item.r*0.2);
+            ctx.lineTo(item.x + item.r*0.5, item.y - item.r*0.2);
+            ctx.lineTo(item.x, item.y + item.r*0.6);
+            ctx.closePath();
+            ctx.strokeStyle = "rgba(255,255,255,0.5)"; ctx.stroke();
+        } else if (item.label.includes('$')) {
+            // 金块，稍微不规则的椭圆，原版是个黄包包的形状
+            ctx.beginPath();
+            ctx.ellipse(item.x, item.y, item.r, item.r * 0.8, Math.PI / 4, 0, Math.PI * 2);
+            ctx.fillStyle = item.color; ctx.fill(); ctx.strokeStyle = "#8B6508"; ctx.lineWidth = 2; ctx.stroke();
+        } else if (item.label.includes('石')) {
+            // 石头，深灰色多边形
+            ctx.beginPath();
+            const sides = 6;
+            for (let i = 0; i < sides; i++) {
+                const angle = (i / sides) * Math.PI * 2;
+                const rOffset = item.r * (0.8 + 0.2 * Math.cos(i * 13));
+                const px = item.x + rOffset * Math.cos(angle);
+                const py = item.y + rOffset * Math.sin(angle);
+                if (i === 0) ctx.moveTo(px, py);
+                else ctx.lineTo(px, py);
+            }
+            ctx.closePath();
+            ctx.fillStyle = item.color; ctx.fill(); ctx.strokeStyle = "#333"; ctx.lineWidth = 2; ctx.stroke();
+        } else {
+            // 其他物品（老鼠、炸药桶、福袋）保持圆形或可以加上贴图字
+            ctx.beginPath(); ctx.arc(item.x, item.y, item.r, 0, Math.PI*2);
+            ctx.fillStyle = item.color; ctx.fill(); ctx.strokeStyle = "#000"; ctx.lineWidth = 2; ctx.stroke();
+        }
+
+        if (item.label === '?' || item.label === 'TNT' || item.label === '鼠' || item.label === '钻鼠' || item.label === '炸药鼠') {
+            ctx.fillStyle = "black"; ctx.font = "bold 16px Arial"; ctx.textAlign = "center";
+            ctx.fillText(item.label, item.x, item.y + 6);
+        }
     });
 
     if(myStartX !== undefined) renderHook(myStartX, HOOK_Y, myHook.angle, myHook.length, "#ffcc00", "我", myContribution);
@@ -365,13 +752,31 @@ function renderHook(x, y, angle, len, color, label, score) {
     ctx.fillStyle = "#ffffff"; ctx.font = "bold 28px Arial"; ctx.fillText(`$${score}`, x, y + 45);
 }
 
-function generateItems() {
+function generateItems(levelStr = 1) {
     const items = [];
+    
+    // 如果存在固定关卡配置，则加载固定位置的矿物
+    const config = LEVEL_CONFIGS[levelStr - 1];
+    if (config) {
+        config.items.forEach(itemData => {
+            const typeDef = ITEM_TYPES[itemData.type];
+            items.push({
+                id: Math.random(),
+                x: itemData.x,
+                y: itemData.y,
+                isCaught: false,
+                ...typeDef
+            });
+        });
+        return items;
+    }
+
+    // 默认情况或超过内置关卡时：使用随机生成
     for (let i = 0; i < 24; i++) {
         let attempts = 0;
         while (attempts < 50) {
             const rand = Math.random();
-            let type = rand > 0.96 ? ITEM_TYPES.BARREL : (rand > 0.93 ? ITEM_TYPES.DIAMOND : (rand > 0.86 ? ITEM_TYPES.LUCKY_BAG : (rand > 0.7 ? ITEM_TYPES.STONE_BIG : (rand > 0.4 ? ITEM_TYPES.GOLD_BIG : (rand > 0.2 ? ITEM_TYPES.GOLD_SMALL : ITEM_TYPES.STONE_SMALL)))));
+            let type = rand > 0.96 ? ITEM_TYPES.BARREL : (rand > 0.93 ? ITEM_TYPES.DIAMOND : (rand > 0.88 ? ITEM_TYPES.LUCKY_BAG : (rand > 0.85 ? ITEM_TYPES.MOUSE_DIAMOND : (rand > 0.80 ? ITEM_TYPES.MOUSE : (rand > 0.77 ? ITEM_TYPES.BOMBER : (rand > 0.65 ? ITEM_TYPES.STONE_HUGE : (rand > 0.4 ? ITEM_TYPES.GOLD_HUGE : (rand > 0.2 ? ITEM_TYPES.GOLD_SMALL : ITEM_TYPES.STONE_SMALL))))))));
             let newItem = { id: Math.random(), x: 150 + Math.random() * (LOGIC_WIDTH - 300), y: 300 + Math.random() * (LOGIC_HEIGHT - 450), isCaught: false, ...type };
             if (!items.some(e => Math.sqrt((e.x-newItem.x)**2 + (e.y-newItem.y)**2) < (e.r+newItem.r+40))) { items.push(newItem); break; }
             attempts++;
@@ -399,7 +804,7 @@ function checkLevelEnd() {
     let shopItems = [];
     if (isWin) {
         const shuffled = [...SHOP_CATALOG].sort(() => 0.5 - Math.random());
-        shopItems = shuffled.slice(0, 3).map(item => ({ ...item, price: item.price + Math.floor(Math.random()*100) }));
+        shopItems = shuffled.slice(0, 3).map(item => ({ name: item.name, effect: item.effect, icon: item.icon, price: item.getPrice() }));
     }
     showEndOverlay(isWin, finalTotal, shopItems);
     if (conn) conn.send({ type: 'LEVEL_END', isWin: isWin, total: finalTotal, shopItems: shopItems });
@@ -407,7 +812,7 @@ function checkLevelEnd() {
 
 function showEndOverlay(isWin, finalTotal, shopItems) {
     gameActive = false;
-    stoneBookEffect = false; cloverEffect = false;
+    stoneBookEffect = false; cloverEffect = false; diamondBoostEffect = false;
     const overlay = document.getElementById('overlay');
     overlay.style.display = 'flex';
     const nextBtn = document.getElementById('nextLevelBtn');
@@ -419,11 +824,24 @@ function showEndOverlay(isWin, finalTotal, shopItems) {
 
     if (isWin) {
         document.getElementById('overlayTitle').innerText = "🎉 挑战成功！";
-        document.getElementById('overlayStatus').innerText = `当前总分: ${totalScore}`; 
+        document.getElementById('overlayStatus').innerText = `当前总钱数: $${totalScore}`; 
         
         if (shopItems && shopItems.length > 0) {
             shopArea.style.display = 'block';
             shopContainer.innerHTML = '';
+            
+            let existingTip = document.getElementById('guestWaitTip');
+            if (existingTip) existingTip.remove();
+            if (!isHost) {
+                const guestTip = document.createElement('div');
+                guestTip.id = 'guestWaitTip';
+                guestTip.style.color = '#ffcc00';
+                guestTip.style.fontSize = '18px';
+                guestTip.style.marginTop = '15px';
+                guestTip.innerText = "等待主机购买并进入下一关...";
+                shopArea.appendChild(guestTip);
+            }
+
             shopItems.forEach((item, index) => {
                 const el = document.createElement('div');
                 el.className = 'shop-item-card';
@@ -449,9 +867,12 @@ function showEndOverlay(isWin, finalTotal, shopItems) {
         if (isHost) {
             nextBtn.style.display = 'inline-block'; nextBtn.innerText = "进入下一关";
             nextBtn.onclick = () => {
-                const items = generateItems();
-                if (conn) conn.send({ type: 'START_GAME', level: currentLevel+1, myContrib: myContribution, peerContrib: peerContribution, bombs: bombs, items: items, globalTotal: totalScore });
-                startLevel(currentLevel + 1, myContribution, peerContribution, bombs, items, totalScore);
+                const nextLevel = currentLevel + 1;
+                const items = generateItems(nextLevel);
+                const hostScore = isHost ? myContribution : peerContribution;
+                const guestScore = isHost ? peerContribution : myContribution;
+                if (conn) conn.send({ type: 'START_GAME', level: nextLevel, hostContrib: hostScore, guestContrib: guestScore, bombs: bombs, items: items, globalTotal: totalScore });
+                startLevel(nextLevel, hostScore, guestScore, bombs, items, totalScore);
             };
         }
     } else {
@@ -460,8 +881,8 @@ function showEndOverlay(isWin, finalTotal, shopItems) {
         if (isHost) {
             restartBtn.style.display = 'inline-block'; restartBtn.innerText = "从头开始";
             restartBtn.onclick = () => {
-                const items = generateItems();
-                if (conn) conn.send({ type: 'START_GAME', level: 1, myContrib: 0, peerContrib: 0, bombs: 3, items: items, globalTotal: 0 });
+                const items = generateItems(1);
+                if (conn) conn.send({ type: 'START_GAME', level: 1, hostContrib: 0, guestContrib: 0, bombs: 3, items: items, globalTotal: 0 });
                 startLevel(1, 0, 0, 3, items, 0);
             };
         }
@@ -473,6 +894,7 @@ function applyShopEffect(effect) {
     if (effect === 'POWER') hasPowerUp = true;
     if (effect === 'STONE_BOOK') stoneBookEffect = true;
     if (effect === 'CLOVER') cloverEffect = true;
+    if (effect === 'DIAMOND_BOOST') diamondBoostEffect = true;
 }
 
 function showWaitingOverlay() {
@@ -486,8 +908,8 @@ function showWaitingOverlay() {
     if (isHost) {
         nextBtn.style.display = 'inline-block'; nextBtn.innerText = "开始游戏";
         nextBtn.onclick = () => {
-            const items = generateItems();
-            if (conn) conn.send({ type: 'START_GAME', level: 1, myContrib: 0, peerContrib: 0, bombs: 3, items: items, globalTotal: 0 });
+            const items = generateItems(1);
+            if (conn) conn.send({ type: 'START_GAME', level: 1, hostContrib: 0, guestContrib: 0, bombs: 3, items: items, globalTotal: 0 });
             startLevel(1, 0, 0, 3, items, 0);
         };
     } else {
@@ -507,7 +929,7 @@ function updateUI() {
     const overlayStatus = document.getElementById('overlayStatus');
     if (overlay.style.display === 'flex' && !gameActive) {
         if (totalScore >= targetScore) {
-            overlayStatus.innerText = `当前总钱: $${totalScore}`;
+            overlayStatus.innerText = `当前总钱数: $${totalScore}`;
         } else {
             overlayStatus.innerText = `总钱: $${totalScore} / 目标: $${targetScore}`;
         }
